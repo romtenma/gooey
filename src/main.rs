@@ -38,6 +38,118 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
+const DEFAULT_CUSTOM_THEME_FILE_NAME: &str = "gooey-custom-themes.json";
+const DEFAULT_CUSTOM_THEME_JSON: &str = r##"{
+    "name": "Custom Themes",
+    "author": "Gooey",
+    "themes": [
+        {
+            "name": "Dark",
+            "mode": "dark",
+            "colors": {
+                "background": "#181a1b",
+                "foreground": "#e0e0e0",
+                "primary.background": "#2e3aa6",
+                "primary.foreground": "#f5f5f5",
+                "tab.active.background": "#23272a",
+                "tab.active.foreground": "#e0e0e0",
+                "sidebar.background": "#202225",
+                "sidebar.foreground": "#b0b0b0",
+                "scrollbar.background": "#23272a",
+                "scrollbar.thumb.background": "#44484c",
+                "scrollbar.thumb.hover.background": "#5a5e62",
+                "list.even.background": "#202324"
+            }
+        },
+        {
+            "name": "Light",
+            "mode": "light",
+            "colors": {
+                "background": "#f7f7f7",
+                "foreground": "#222222",
+                "primary.background": "#2f7a5a",
+                "primary.foreground": "#f5f5f5",
+                "tab.active.background": "#eaeaea",
+                "tab.active.foreground": "#222222",
+                "sidebar.background": "#f3f3f3",
+                "sidebar.foreground": "#555555",
+                "scrollbar.background": "#eaeaea",
+                "scrollbar.thumb.background": "#cccccc",
+                "scrollbar.thumb.hover.background": "#b0b0b0",
+                "list.even.background": "#e3e3e3"
+            }
+        },
+        {
+            "name": "Paper Light",
+            "mode": "light",
+            "colors": {
+                "background": "#f4f1ea",
+                "foreground": "#2a2622",
+                "primary.background": "#2f7a5a",
+                "primary.foreground": "#f9f7f0",
+                "tab.active.background": "#e7dcc5",
+                "tab.active.foreground": "#2a2622",
+                "sidebar.background": "#ece4d2",
+                "scrollbar.background": "#ddd4c1",
+                "scrollbar.thumb.background": "#998b70",
+                "scrollbar.thumb.hover.background": "#7f7258",
+                "list.even.background": "#efece5"
+            }
+        },
+        {
+            "name": "Mint Light",
+            "mode": "light",
+            "colors": {
+                "background": "#ecf8f3",
+                "foreground": "#1d2a24",
+                "primary.background": "#2e8d77",
+                "primary.foreground": "#effdf8",
+                "tab.active.background": "#d2efe7",
+                "tab.active.foreground": "#1d2a24",
+                "sidebar.background": "#dcf4ec",
+                "scrollbar.background": "#c7e7dc",
+                "scrollbar.thumb.background": "#5a9a85",
+                "scrollbar.thumb.hover.background": "#467c6b",
+                "list.even.background": "#e7f3ee"
+            }
+        },
+        {
+            "name": "Deep Navy",
+            "mode": "dark",
+            "colors": {
+                "background": "#151c2f",
+                "foreground": "#d7e0ff",
+                "primary.background": "#4a79ff",
+                "primary.foreground": "#f7f9ff",
+                "tab.active.background": "#2a3557",
+                "tab.active.foreground": "#d7e0ff",
+                "sidebar.background": "#101625",
+                "scrollbar.background": "#1c2641",
+                "scrollbar.thumb.background": "#5f79bf",
+                "scrollbar.thumb.hover.background": "#809cf0",
+                "list.even.background": "#1b2340"
+            }
+        },
+        {
+            "name": "Forest Night",
+            "mode": "dark",
+            "colors": {
+                "background": "#0f1d18",
+                "foreground": "#d8efe6",
+                "primary.background": "#2d8c6e",
+                "primary.foreground": "#ecfff8",
+                "tab.active.background": "#20342d",
+                "tab.active.foreground": "#d8efe6",
+                "sidebar.background": "#0b1612",
+                "scrollbar.background": "#1a2e27",
+                "scrollbar.thumb.background": "#4d8b76",
+                "scrollbar.thumb.hover.background": "#69b196",
+                "list.even.background": "#162b22"
+            }
+        }
+    ]
+}"##;
+
 struct AppAssets {
     root: PathBuf,
 }
@@ -1875,6 +1987,27 @@ impl FiveChLayout {
             .ok_or_else(|| "ホームディレクトリが見つかりません".to_string())?
             .join("gooey")
             .join("session.json"))
+    }
+
+    fn custom_theme_file_path() -> Result<PathBuf, String> {
+        Ok(Self::session_file_path()?
+            .parent()
+            .ok_or_else(|| "セッション保存先ディレクトリを判定できません".to_string())?
+            .join(DEFAULT_CUSTOM_THEME_FILE_NAME))
+    }
+
+    fn ensure_custom_theme_file() -> Result<PathBuf, String> {
+        let path = Self::custom_theme_file_path()?;
+        if path.exists() {
+            return Ok(path);
+        }
+
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+
+        fs::write(&path, DEFAULT_CUSTOM_THEME_JSON).map_err(|e| e.to_string())?;
+        Ok(path)
     }
 
     fn mouse_gesture_file_path() -> Result<PathBuf, String> {
@@ -5252,7 +5385,19 @@ fn main() {
 
     app.run(move |cx| {
         gpui_component::init(cx);
-        let themes_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("themes");
+        let themes_dir = match FiveChLayout::ensure_custom_theme_file() {
+            Ok(theme_file_path) => theme_file_path
+                .parent()
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from(".")),
+            Err(err) => {
+                warn!("カスタムテーマファイルの初期化に失敗しました: {err}");
+                FiveChLayout::session_file_path()
+                    .ok()
+                    .and_then(|path| path.parent().map(PathBuf::from))
+                    .unwrap_or_else(|| PathBuf::from("."))
+            }
+        };
         if let Err(err) = ThemeRegistry::watch_dir(themes_dir, cx, |_cx| {}) {
             warn!("カスタムテーマの監視開始に失敗しました: {err}");
         }
